@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using ScreenshotTool.Services;
 
 namespace ScreenshotTool
 {
@@ -61,11 +60,6 @@ namespace ScreenshotTool
         private PictureBox picturePreview = null!;
         private WmpHost mediaPlayer = null!;
         private Button btnPopout = null!;
-
-        // Column widths
-        private int colMonitorWidth = 70;
-        private int colFolderWidth = 80;
-        private int colDateWidth = 120;
 
         // Data
         private readonly List<IMediaItem> currentMediaList = new();
@@ -842,7 +836,6 @@ namespace ScreenshotTool
             bool screenshots = (currentView == MediaViewMode.Screenshots);
             ctxCopyImage.Enabled = screenshots;
             ctxEditPaint.Enabled = screenshots;
-            ctxUploadChatGPT.Enabled = screenshots;
 
             RefreshMediaList();
         }

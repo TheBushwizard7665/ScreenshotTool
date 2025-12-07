@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace ScreenshotTool.Services
+namespace ScreenshotTool
 {
     public class FileService : IFileService
     {

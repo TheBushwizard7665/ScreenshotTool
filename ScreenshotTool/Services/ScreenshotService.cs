@@ -3,7 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
-namespace ScreenshotTool.Services
+namespace ScreenshotTool
 {
     public class ScreenshotService : IScreenshotService
     {

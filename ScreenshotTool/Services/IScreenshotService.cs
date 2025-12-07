@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace ScreenshotTool.Services
+namespace ScreenshotTool
 {
     public interface IScreenshotService
     {

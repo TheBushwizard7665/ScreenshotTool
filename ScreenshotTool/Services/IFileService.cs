@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace ScreenshotTool.Services
+namespace ScreenshotTool
 {
     public interface IFileService
     {

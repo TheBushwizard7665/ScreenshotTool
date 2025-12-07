@@ -5,7 +5,7 @@ using System.Linq;
 using System.Windows.Forms;
 using ScreenRecorderLib;
 
-namespace ScreenshotTool.Services
+namespace ScreenshotTool
 {
     public class RecordingService : IRecordingService
     {

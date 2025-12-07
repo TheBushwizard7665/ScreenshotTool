@@ -2,7 +2,7 @@ using System;
 using System.Windows.Forms;
 using ScreenRecorderLib;
 
-namespace ScreenshotTool.Services
+namespace ScreenshotTool
 {
     public interface IRecordingService
     {
