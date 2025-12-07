@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace ScreenshotTool
 {
@@ -9,11 +9,13 @@ namespace ScreenshotTool
 
         public int LivePreviewIntervalMs { get; set; } = 800;
 
-        public bool CompactMode { get; set; } = false;
         public string LastMediaView { get; set; } = "Screenshots";
 
         public bool BringToFrontAfterHotkey { get; set; } = true;
 
         public bool RecordingIncludeAudio { get; set; } = true;
+
+        public int VideoBitrate { get; set; } = 8000000; // 8 Mbps
+        public int VideoFramerate { get; set; } = 60;
     }
 }

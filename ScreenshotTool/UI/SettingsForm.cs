@@ -11,6 +11,8 @@ namespace ScreenshotTool
         private NumericUpDown nudPreviewInterval = null!;
         private CheckBox chkBringToFront = null!;
         private CheckBox chkRecordAudio = null!;
+        private NumericUpDown nudBitrate = null!;
+        private NumericUpDown nudFramerate = null!;
         private Button btnOk = null!;
         private Button btnCancel = null!;
 
@@ -23,121 +25,95 @@ namespace ScreenshotTool
                 MaxFileCount = current.MaxFileCount,
                 MaxAgeDays = current.MaxAgeDays,
                 LivePreviewIntervalMs = current.LivePreviewIntervalMs,
-                CompactMode = current.CompactMode,
                 LastMediaView = current.LastMediaView,
                 BringToFrontAfterHotkey = current.BringToFrontAfterHotkey,
-                RecordingIncludeAudio = current.RecordingIncludeAudio
+                RecordingIncludeAudio = current.RecordingIncludeAudio,
+                VideoBitrate = current.VideoBitrate,
+                VideoFramerate = current.VideoFramerate
             };
 
             Text = "Settings";
             StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.Sizable; // Resizable
-            ClientSize = new Size(380, 220);
-            MaximizeBox = true; // Enabled
-            MinimizeBox = true; // Enabled
+            FormBorderStyle = FormBorderStyle.Sizable;
+            ClientSize = new Size(400, 350);
+            MaximizeBox = true;
+            MinimizeBox = true;
 
-            int labelLeft = 12;
-            int controlLeft = 170;
-            int top = 15;
-            int row = 0;
-            int rowHeight = 28;
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 8,
+                Padding = new Padding(10),
+                AutoSize = true
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60F));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40F));
 
-            Label L(string text, int rowIndex)
+            void AddRow(string label, Control control)
             {
                 var l = new Label
                 {
-                    Text = text,
+                    Text = label,
                     AutoSize = true,
-                    Left = labelLeft,
-                    Top = top + rowIndex * rowHeight + 4
+                    Anchor = AnchorStyles.Left | AnchorStyles.Right,
+                    TextAlign = ContentAlignment.MiddleLeft
                 };
-                Controls.Add(l);
-                return l;
+                table.Controls.Add(l);
+                control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+                table.Controls.Add(control);
             }
 
-            L("Max files to keep:", row);
-            nudMaxFiles = new NumericUpDown
-            {
-                Left = controlLeft,
-                Top = top + row * rowHeight,
-                Width = 80,
-                Minimum = 10,
-                Maximum = 100000,
-                Value = Settings.MaxFileCount
-            };
-            Controls.Add(nudMaxFiles);
+            nudMaxFiles = new NumericUpDown { Minimum = 10, Maximum = 100000, Value = Settings.MaxFileCount };
+            AddRow("Max files to keep:", nudMaxFiles);
 
-            row++;
-            L("Max age (days):", row);
-            nudMaxAge = new NumericUpDown
-            {
-                Left = controlLeft,
-                Top = top + row * rowHeight,
-                Width = 80,
-                Minimum = 1,
-                Maximum = 3650,
-                Value = Settings.MaxAgeDays
-            };
-            Controls.Add(nudMaxAge);
+            nudMaxAge = new NumericUpDown { Minimum = 1, Maximum = 3650, Value = Settings.MaxAgeDays };
+            AddRow("Max age (days):", nudMaxAge);
 
-            row++;
-            L("Live preview interval (ms):", row);
-            nudPreviewInterval = new NumericUpDown
-            {
-                Left = controlLeft,
-                Top = top + row * rowHeight,
-                Width = 80,
-                Minimum = 100,
-                Maximum = 10000,
-                Increment = 100,
-                Value = Settings.LivePreviewIntervalMs
-            };
-            Controls.Add(nudPreviewInterval);
+            nudPreviewInterval = new NumericUpDown { Minimum = 100, Maximum = 10000, Increment = 100, Value = Settings.LivePreviewIntervalMs };
+            AddRow("Live preview interval (ms):", nudPreviewInterval);
 
-            row++;
+            nudBitrate = new NumericUpDown { Minimum = 100000, Maximum = 100000000, Increment = 100000, Value = Settings.VideoBitrate };
+            AddRow("Video Bitrate (bps):", nudBitrate);
+
+            nudFramerate = new NumericUpDown { Minimum = 10, Maximum = 144, Value = Settings.VideoFramerate };
+            AddRow("Video Framerate (fps):", nudFramerate);
+
             chkBringToFront = new CheckBox
             {
                 Text = "Bring main window to front after hotkey",
-                Left = labelLeft,
-                Top = top + row * rowHeight,
                 AutoSize = true,
                 Checked = Settings.BringToFrontAfterHotkey
             };
-            Controls.Add(chkBringToFront);
+            table.Controls.Add(chkBringToFront);
+            table.SetColumnSpan(chkBringToFront, 2);
 
-            row++;
             chkRecordAudio = new CheckBox
             {
-                Text = "Include system audio + microphone in recordings",
-                Left = labelLeft,
-                Top = top + row * rowHeight,
+                Text = "Include audio in recordings",
                 AutoSize = true,
                 Checked = Settings.RecordingIncludeAudio
             };
-            Controls.Add(chkRecordAudio);
+            table.Controls.Add(chkRecordAudio);
+            table.SetColumnSpan(chkRecordAudio, 2);
 
-            btnOk = new Button
+            var buttonPanel = new FlowLayoutPanel
             {
-                Text = "OK",
-                DialogResult = DialogResult.OK,
-                Left = 200,
-                Top = 175,
-                Width = 75
+                FlowDirection = FlowDirection.RightToLeft,
+                Dock = DockStyle.Bottom,
+                Height = 40,
+                AutoSize = true
             };
 
-            btnCancel = new Button
-            {
-                Text = "Cancel",
-                DialogResult = DialogResult.Cancel,
-                Left = 285,
-                Top = 175,
-                Width = 75
-            };
-
+            btnCancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
+            btnOk = new Button { Text = "OK", DialogResult = DialogResult.OK };
             btnOk.Click += BtnOk_Click;
 
-            Controls.Add(btnOk);
-            Controls.Add(btnCancel);
+            buttonPanel.Controls.Add(btnCancel);
+            buttonPanel.Controls.Add(btnOk);
+
+            Controls.Add(table);
+            Controls.Add(buttonPanel);
 
             AcceptButton = btnOk;
             CancelButton = btnCancel;
@@ -152,35 +128,48 @@ namespace ScreenshotTool
             Settings.LivePreviewIntervalMs = (int)nudPreviewInterval.Value;
             Settings.BringToFrontAfterHotkey = chkBringToFront.Checked;
             Settings.RecordingIncludeAudio = chkRecordAudio.Checked;
+            Settings.VideoBitrate = (int)nudBitrate.Value;
+            Settings.VideoFramerate = (int)nudFramerate.Value;
         }
 
         private void ApplyDarkTheme()
         {
-            Color back = Color.FromArgb(0, 0, 139); // DarkBlue
+            Color back = Color.FromArgb(47, 79, 79); // DarkSlateGray
             Color text = Color.White;
-            Color controlBack = Color.FromArgb(0, 0, 128); // Navy
+            Color controlBack = Color.FromArgb(50, 80, 80);
 
             BackColor = back;
             ForeColor = text;
 
             foreach (Control ctl in Controls)
+                ApplyTheme(ctl, back, controlBack, text);
+        }
+
+        private void ApplyTheme(Control ctl, Color back, Color controlBack, Color text)
+        {
+            if (ctl is Button)
             {
-                if (ctl is Button)
-                {
-                    ctl.BackColor = controlBack;
-                    ctl.ForeColor = text;
-                }
-                else if (ctl is Label || ctl is CheckBox)
-                {
-                    ctl.BackColor = back;
-                    ctl.ForeColor = text;
-                }
-                else if (ctl is NumericUpDown)
-                {
-                    ctl.BackColor = controlBack;
-                    ctl.ForeColor = text;
-                }
+                ctl.BackColor = controlBack;
+                ctl.ForeColor = text;
             }
+            else if (ctl is Label || ctl is CheckBox)
+            {
+                // Labels in TableLayoutPanel might need transparent or matching back
+                ctl.BackColor = Color.Transparent;
+                ctl.ForeColor = text;
+            }
+            else if (ctl is NumericUpDown)
+            {
+                ctl.BackColor = controlBack;
+                ctl.ForeColor = text;
+            }
+            else if (ctl is TableLayoutPanel || ctl is FlowLayoutPanel)
+            {
+                ctl.BackColor = Color.Transparent;
+            }
+
+            foreach (Control child in ctl.Controls)
+                ApplyTheme(child, back, controlBack, text);
         }
     }
 }

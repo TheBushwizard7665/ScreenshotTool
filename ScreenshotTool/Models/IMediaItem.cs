@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace ScreenshotTool
 {
@@ -11,7 +11,6 @@ namespace ScreenshotTool
         string MonitorLabel { get; }
         string MonitorShortLabel { get; }
 
-        string TagLabel { get; }
         string FolderLabel { get; }
 
         DateTime Created { get; }

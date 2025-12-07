@@ -113,15 +113,6 @@ namespace ScreenshotTool
             tooltips.SetToolTip(btnSettings,
                 "Adjust cleanup, preview, recording, and hotkey behavior.");
 
-            chkCompact = new CheckBox
-            {
-                Text = "Compact",
-                AutoSize = true,
-                Margin = new Padding(10, 6, 0, 0)
-            };
-            tooltips.SetToolTip(chkCompact,
-                "Compact mode hides extra columns and the preview area.");
-
             topFlow.Controls.Add(lblMonitors);
             topFlow.Controls.Add(comboMonitors);
             topFlow.Controls.Add(btnCapture);
@@ -130,7 +121,6 @@ namespace ScreenshotTool
             topFlow.Controls.Add(btnOpenFolder);
             topFlow.Controls.Add(btnOpenAllFolders);
             topFlow.Controls.Add(btnSettings);
-            topFlow.Controls.Add(chkCompact);
 
             topBar.Controls.Add(topFlow);
 
@@ -175,9 +165,9 @@ namespace ScreenshotTool
                 HideSelection = false,
                 MultiSelect = true
             };
-            listMedia.Columns.Add("Name", 180);
+            // Use -2 for auto-size width (header)
+            listMedia.Columns.Add("Name", -2);
             listMedia.Columns.Add("Monitor", 70);
-            listMedia.Columns.Add("Tag", 70);
             listMedia.Columns.Add("Folder", 80);
             listMedia.Columns.Add("Date", 120);
 
@@ -277,16 +267,6 @@ namespace ScreenshotTool
                 Height = 60
             };
 
-            chkLivePreview = new CheckBox
-            {
-                Text = "Live preview",
-                Left = 8,
-                Top = 6,
-                AutoSize = true
-            };
-            tooltips.SetToolTip(chkLivePreview,
-                "Continuously mirror the selected monitor in the preview area.");
-
             lblStatus = new Label
             {
                 Text = "Ready",
@@ -303,7 +283,6 @@ namespace ScreenshotTool
                 AutoSize = true
             };
 
-            rightBottom.Controls.Add(chkLivePreview);
             rightBottom.Controls.Add(lblStatus);
             rightBottom.Controls.Add(lblFileStatus);
 

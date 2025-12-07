@@ -14,7 +14,7 @@ namespace ScreenshotTool.Services
 
         public bool IsRecording => _isRecording;
 
-        public void StartRecording(Screen screen, string outputFolder, bool includeAudio, Action<string> onComplete, Action<string> onError)
+        public void StartRecording(Screen screen, string outputFolder, bool includeAudio, int bitrate, int framerate, Action<string> onComplete, Action<string> onError)
         {
             if (_isRecording) return;
 
@@ -49,6 +49,12 @@ namespace ScreenshotTool.Services
                         IsAudioEnabled = includeAudio,
                         IsInputDeviceEnabled = includeAudio,
                         IsOutputDeviceEnabled = includeAudio
+                    },
+                    VideoEncoderOptions = new VideoEncoderOptions
+                    {
+                        Bitrate = bitrate,
+                        Framerate = framerate,
+                        IsFixedFramerate = true
                     }
                 };
 

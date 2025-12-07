@@ -6,7 +6,7 @@ namespace ScreenshotTool.Services
 {
     public interface IRecordingService
     {
-        void StartRecording(Screen screen, string outputFolder, bool includeAudio, Action<string> onComplete, Action<string> onError);
+        void StartRecording(Screen screen, string outputFolder, bool includeAudio, int bitrate, int framerate, Action<string> onComplete, Action<string> onError);
         void StopRecording();
         bool IsRecording { get; }
     }

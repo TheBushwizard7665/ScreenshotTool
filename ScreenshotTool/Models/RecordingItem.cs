@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 
 namespace ScreenshotTool
@@ -12,7 +12,6 @@ namespace ScreenshotTool
         public string MonitorLabel { get; }
         public string MonitorShortLabel { get; }
 
-        public string TagLabel { get; }
         public string FolderLabel { get; }
 
         public DateTime Created { get; }
@@ -51,7 +50,6 @@ namespace ScreenshotTool
             }
 
             FolderLabel = string.IsNullOrEmpty(folder) ? "-" : folder;
-            TagLabel = "Recording";
         }
     }
 }

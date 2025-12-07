@@ -40,7 +40,6 @@ namespace ScreenshotTool
         private Button btnOpenFolder = null!;
         private Button btnOpenAllFolders = null!;
         private Button btnSettings = null!;
-        private CheckBox chkCompact = null!;
         private Label lblList = null!;
         private ComboBox comboView = null!;
         private TextBox txtSearch = null!;
@@ -52,7 +51,7 @@ namespace ScreenshotTool
         private Button btnDelete = null!;
         private Button btnDeleteAll = null!;
         private Button btnMove = null!;
-        private CheckBox chkLivePreview = null!;
+        private bool isLivePreviewEnabled;
         private Label lblStatus = null!;
         private Label lblFileStatus = null!;
         private ToolTip tooltips = null!;
@@ -63,9 +62,8 @@ namespace ScreenshotTool
         private WmpHost mediaPlayer = null!;
         private Button btnPopout = null!;
 
-        // Column widths for compact mode
+        // Column widths
         private int colMonitorWidth = 70;
-        private int colTagWidth = 70;
         private int colFolderWidth = 80;
         private int colDateWidth = 120;
 
@@ -95,7 +93,7 @@ namespace ScreenshotTool
         // Context menu
         private ContextMenuStrip mediaContextMenu = null!;
         private ToolStripMenuItem ctxCopyImage = null!;
-        private ToolStripMenuItem ctxUploadChatGPT = null!;
+        private ToolStripMenuItem ctxCreateFolder = null!;
         private ToolStripMenuItem ctxEditPaint = null!;
 
         public MainForm()
@@ -151,8 +149,6 @@ namespace ScreenshotTool
                 currentView = MediaViewMode.Screenshots;
 
             comboView.SelectedIndex = currentView == MediaViewMode.Screenshots ? 0 : 1;
-            chkCompact.Checked = settings.CompactMode;
-            ApplyCompactMode();
 
             InitializeHotkey();
             RefreshMediaList();
@@ -168,7 +164,6 @@ namespace ScreenshotTool
             btnOpenFolder.Click += BtnOpenFolder_Click;
             btnOpenAllFolders.Click += BtnOpenAllFolders_Click;
             btnSettings.Click += BtnSettings_Click;
-            chkCompact.CheckedChanged += ChkCompact_CheckedChanged;
 
             comboView.SelectedIndexChanged += ComboView_SelectedIndexChanged;
             txtSearch.TextChanged += (s, e) => ApplySearchFilter();
@@ -208,42 +203,54 @@ namespace ScreenshotTool
             previewHost.MouseDown += PreviewArea_MouseDown;
             picturePreview.MouseDown += PreviewArea_MouseDown;
 
-            chkLivePreview.CheckedChanged += ChkLivePreview_CheckedChanged;
+            listMedia.Resize += (s, e) =>
+            {
+                if (listMedia.Columns.Count > 0)
+                    listMedia.Columns[0].Width = -2;
+            };
         }
 
         #region UI Theming & Setup
 
         private void ApplyDarkTheme()
         {
-            // Dark Blue and White theme
-            Color back = Color.FromArgb(0, 0, 139); // DarkBlue
-            Color panelBack = Color.FromArgb(25, 25, 112); // MidnightBlue
+            // Dark Blue-Grey theme
+            Color back = Color.FromArgb(47, 79, 79); // DarkSlateGray
+            Color panelBack = Color.FromArgb(40, 70, 70); // Slightly darker
             Color text = Color.White;
+            Color listBack = Color.FromArgb(60, 90, 90); // Lighter for contrast
 
             BackColor = back;
             ForeColor = text;
 
             foreach (Control ctl in Controls)
-                ApplyDarkThemeToControl(ctl, back, panelBack, text);
+                ApplyDarkThemeToControl(ctl, back, panelBack, text, listBack);
 
             listMedia.GridLines = false;
         }
 
-        private void ApplyDarkThemeToControl(Control ctl, Color back, Color panelBack, Color text)
+        private void ApplyDarkThemeToControl(Control ctl, Color back, Color panelBack, Color text, Color listBack)
         {
             if (ctl is Panel or FlowLayoutPanel or GroupBox)
-                ctl.BackColor = panelBack;
+            {
+                if (ctl == leftPanel)
+                    ctl.BackColor = listBack;
+                else
+                    ctl.BackColor = panelBack;
+            }
             else if (ctl is Splitter)
-                ctl.BackColor = Color.FromArgb(65, 105, 225); // RoyalBlue
-            else if (ctl is ListView or TextBox or ComboBox)
-                ctl.BackColor = Color.FromArgb(0, 0, 128); // Navy
+                ctl.BackColor = Color.FromArgb(100, 149, 237); // CornflowerBlue
+            else if (ctl is ListView)
+                ctl.BackColor = listBack;
+            else if (ctl is TextBox or ComboBox)
+                ctl.BackColor = Color.FromArgb(50, 80, 80);
             else
                 ctl.BackColor = back;
 
             ctl.ForeColor = text;
 
             foreach (Control child in ctl.Controls)
-                ApplyDarkThemeToControl(child, back, panelBack, text);
+                ApplyDarkThemeToControl(child, back, panelBack, text, listBack);
         }
 
         private void InitializeMediaContextMenu()
@@ -265,14 +272,14 @@ namespace ScreenshotTool
             ctxEditPaint = new ToolStripMenuItem("Edit in Paint");
             ctxEditPaint.Click += (s, e) => EditSelectedInPaint();
 
-            ctxUploadChatGPT = new ToolStripMenuItem("Upload to ChatGPT (open file)");
-            ctxUploadChatGPT.Click += (s, e) => OpenSelected();
-
             var ctxRename = new ToolStripMenuItem("Rename...");
             ctxRename.Click += (s, e) => RenameSelected();
 
-            var ctxNewFolder = new ToolStripMenuItem("New folder (move here)...");
-            ctxNewFolder.Click += (s, e) => NewFolderAndMoveSelected();
+            ctxCreateFolder = new ToolStripMenuItem("Create New Folder...");
+            ctxCreateFolder.Click += (s, e) => CreateNewFolder();
+
+            var ctxNewFolderMove = new ToolStripMenuItem("New folder (move here)...");
+            ctxNewFolderMove.Click += (s, e) => NewFolderAndMoveSelected();
 
             var ctxDelete = new ToolStripMenuItem("Delete");
             ctxDelete.Click += (s, e) => DeleteSelectedFiles();
@@ -285,10 +292,10 @@ namespace ScreenshotTool
                 new ToolStripSeparator(),
                 ctxCopyImage,
                 ctxEditPaint,
-                ctxUploadChatGPT,
                 new ToolStripSeparator(),
                 ctxRename,
-                ctxNewFolder,
+                ctxCreateFolder,
+                ctxNewFolderMove,
                 new ToolStripSeparator(),
                 ctxDelete
             });
@@ -359,7 +366,7 @@ namespace ScreenshotTool
             {
                 hotkeyRegistered = RegisterHotKey(Handle, HOTKEY_ID,
                     MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_SPACE);
-                SetStatus($"{HOTKEY_TEXT}: registered");
+                // Status update removed as requested
             }
             catch
             {
@@ -398,20 +405,23 @@ namespace ScreenshotTool
 
         private void ComboMonitors_SelectedIndexChanged(object? sender, EventArgs e)
         {
-            if (chkLivePreview.Checked)
+            if (isLivePreviewEnabled)
                 RefreshLivePreview();
         }
 
         private void ComboMonitors_DropDown(object? sender, EventArgs e)
         {
             // Auto-enable live preview when dropdown opens
-            chkLivePreview.Checked = true;
+            isLivePreviewEnabled = true;
+            livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
+            livePreviewTimer.Start();
         }
 
         private void BtnCapture_Click(object? sender, EventArgs e)
         {
             // Auto-disable live preview when capture starts
-            chkLivePreview.Checked = false;
+            isLivePreviewEnabled = false;
+            livePreviewTimer.Stop();
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
                 return;
@@ -422,7 +432,8 @@ namespace ScreenshotTool
         private void BtnCaptureRegion_Click(object? sender, EventArgs e)
         {
             // Auto-disable live preview when capture starts
-            chkLivePreview.Checked = false;
+            isLivePreviewEnabled = false;
+            livePreviewTimer.Stop();
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
                 return;
@@ -506,7 +517,8 @@ namespace ScreenshotTool
                 return;
 
             // Auto-disable live preview when recording starts
-            chkLivePreview.Checked = false;
+            isLivePreviewEnabled = false;
+            livePreviewTimer.Stop();
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
             {
@@ -522,6 +534,8 @@ namespace ScreenshotTool
                 mi.Screen,
                 recordingsFolder,
                 settings.RecordingIncludeAudio,
+                settings.VideoBitrate,
+                settings.VideoFramerate,
                 onComplete: (filePath) =>
                 {
                     if (!IsHandleCreated) return;
@@ -585,7 +599,6 @@ namespace ScreenshotTool
 
                 var lvi = new ListViewItem(item.DisplayName) { Tag = item };
                 lvi.SubItems.Add(item.MonitorShortLabel);
-                lvi.SubItems.Add(item.TagLabel);
                 lvi.SubItems.Add(item.FolderLabel);
                 lvi.SubItems.Add(item.Created.ToString("yyyy-MM-dd HH:mm"));
                 listMedia.Items.Add(lvi);
@@ -653,9 +666,10 @@ namespace ScreenshotTool
                 return;
             }
 
-            if (chkLivePreview.Checked)
+            if (isLivePreviewEnabled)
             {
-                chkLivePreview.Checked = false;
+                isLivePreviewEnabled = false;
+                livePreviewTimer.Stop();
             }
 
             UpdateFileStatusDetails(item.FullPath);
@@ -725,7 +739,7 @@ namespace ScreenshotTool
 
                 string ext = Path.GetExtension(path).ToLowerInvariant();
 
-                if (chkLivePreview.Checked)
+                if (isLivePreviewEnabled)
                     return;
 
                 if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif")
@@ -766,22 +780,9 @@ namespace ScreenshotTool
             }
         }
 
-        private void ChkLivePreview_CheckedChanged(object? sender, EventArgs e)
-        {
-            if (chkLivePreview.Checked && !settings.CompactMode)
-            {
-                livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
-                livePreviewTimer.Start();
-            }
-            else
-            {
-                livePreviewTimer.Stop();
-            }
-        }
-
         private void RefreshLivePreview()
         {
-            if (!chkLivePreview.Checked || settings.CompactMode)
+            if (!isLivePreviewEnabled)
                 return;
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
@@ -813,45 +814,7 @@ namespace ScreenshotTool
 
         #region Compact mode / view mode
 
-        private void ChkCompact_CheckedChanged(object? sender, EventArgs e)
-        {
-            settings.CompactMode = chkCompact.Checked;
-            _settingsService.Save(settings);
-            ApplyCompactMode();
-        }
 
-        private void ApplyCompactMode()
-        {
-            if (listMedia.Columns.Count < 5) return;
-
-            if (settings.CompactMode)
-            {
-                listMedia.Columns[1].Width = 0;
-                listMedia.Columns[2].Width = 0;
-                listMedia.Columns[3].Width = 0;
-                listMedia.Columns[4].Width = 0;
-
-                chkLivePreview.Enabled = false;
-                livePreviewTimer.Stop();
-
-                rightPanel.Visible = false;
-                mainSplitter.Visible = false;
-                leftPanel.Dock = DockStyle.Fill;
-            }
-            else
-            {
-                listMedia.Columns[1].Width = colMonitorWidth;
-                listMedia.Columns[2].Width = colTagWidth;
-                listMedia.Columns[3].Width = colFolderWidth;
-                listMedia.Columns[4].Width = colDateWidth;
-
-                chkLivePreview.Enabled = true;
-                rightPanel.Visible = true;
-                mainSplitter.Visible = true;
-                leftPanel.Dock = DockStyle.Left;
-                leftPanel.Width = 360;
-            }
-        }
 
         private void ComboView_SelectedIndexChanged(object? sender, EventArgs e)
         {
@@ -866,15 +829,14 @@ namespace ScreenshotTool
 
             lblList.Text = currentView == MediaViewMode.Screenshots ? "Screenshots" : "Recordings";
 
-            chkLivePreview.Enabled = !settings.CompactMode;
-            if (!chkLivePreview.Enabled)
-            {
-                livePreviewTimer.Stop();
-            }
-            else if (chkLivePreview.Checked)
+            if (isLivePreviewEnabled)
             {
                 livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
                 livePreviewTimer.Start();
+            }
+            else
+            {
+                livePreviewTimer.Stop();
             }
 
             bool screenshots = (currentView == MediaViewMode.Screenshots);
@@ -1085,6 +1047,39 @@ namespace ScreenshotTool
             {
                 MessageBox.Show("Error renaming file:\n" + ex.Message,
                     "Rename", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void CreateNewFolder()
+        {
+            using var dlg = new RenameForm("NewFolder");
+            dlg.Text = "Create New Folder";
+            if (dlg.ShowDialog(this) != DialogResult.OK)
+                return;
+
+            string folderName = dlg.NewName.Trim();
+            if (string.IsNullOrEmpty(folderName)) return;
+            foreach (char c in Path.GetInvalidFileNameChars())
+                folderName = folderName.Replace(c, '_');
+
+            try
+            {
+                string basePath = currentView == MediaViewMode.Screenshots ? screenshotsFolder : recordingsFolder;
+
+                var item = GetFirstSelectedItem();
+                if (item != null)
+                {
+                    string dir = Path.GetDirectoryName(item.FullPath) ?? basePath;
+                    basePath = dir;
+                }
+
+                _fileService.CreateFolder(basePath, folderName);
+                RefreshMediaList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error creating folder:\n" + ex.Message,
+                    "Create New Folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
