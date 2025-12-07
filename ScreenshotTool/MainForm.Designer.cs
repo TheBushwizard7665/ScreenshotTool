@@ -193,22 +193,32 @@ namespace ScreenshotTool
             btnDelete = new Button
             {
                 Text = "Delete",
-                Width = 90,
+                Width = 60,
                 Left = 6,
                 Top = 6
             };
             tooltips.SetToolTip(btnDelete, "Delete the selected file(s).");
 
+            btnDeleteAll = new Button
+            {
+                Text = "Delete All",
+                Width = 70,
+                Left = 72,
+                Top = 6
+            };
+            tooltips.SetToolTip(btnDeleteAll, "Delete ALL visible files in the list.");
+
             btnMove = new Button
             {
                 Text = "Move...",
-                Width = 90,
-                Left = 102,
+                Width = 60,
+                Left = 148,
                 Top = 6
             };
             tooltips.SetToolTip(btnMove, "Move selected file(s) to another folder.");
 
             leftBottomPanel.Controls.Add(btnDelete);
+            leftBottomPanel.Controls.Add(btnDeleteAll);
             leftBottomPanel.Controls.Add(btnMove);
 
             leftPanel.Controls.Add(listMedia);

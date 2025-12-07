@@ -25,7 +25,8 @@ namespace ScreenshotTool.Services
             string monitorFolder = Path.Combine(outputFolder, $"Monitor{index + 1}");
             Directory.CreateDirectory(monitorFolder);
 
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            // Use MMddyy_HHmmss for shorter filenames
+            string timestamp = DateTime.Now.ToString("MMddyy_HHmmss");
             string fileName = $"{prefix}_{timestamp}.png";
             string filePath = Path.Combine(monitorFolder, fileName);
 

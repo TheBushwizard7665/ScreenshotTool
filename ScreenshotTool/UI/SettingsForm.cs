@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -31,10 +31,10 @@ namespace ScreenshotTool
 
             Text = "Settings";
             StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            FormBorderStyle = FormBorderStyle.Sizable; // Resizable
             ClientSize = new Size(380, 220);
-            MaximizeBox = false;
-            MinimizeBox = false;
+            MaximizeBox = true; // Enabled
+            MinimizeBox = true; // Enabled
 
             int labelLeft = 12;
             int controlLeft = 170;
@@ -141,6 +141,8 @@ namespace ScreenshotTool
 
             AcceptButton = btnOk;
             CancelButton = btnCancel;
+
+            ApplyDarkTheme();
         }
 
         private void BtnOk_Click(object? sender, EventArgs e)
@@ -150,6 +152,35 @@ namespace ScreenshotTool
             Settings.LivePreviewIntervalMs = (int)nudPreviewInterval.Value;
             Settings.BringToFrontAfterHotkey = chkBringToFront.Checked;
             Settings.RecordingIncludeAudio = chkRecordAudio.Checked;
+        }
+
+        private void ApplyDarkTheme()
+        {
+            Color back = Color.FromArgb(0, 0, 139); // DarkBlue
+            Color text = Color.White;
+            Color controlBack = Color.FromArgb(0, 0, 128); // Navy
+
+            BackColor = back;
+            ForeColor = text;
+
+            foreach (Control ctl in Controls)
+            {
+                if (ctl is Button)
+                {
+                    ctl.BackColor = controlBack;
+                    ctl.ForeColor = text;
+                }
+                else if (ctl is Label || ctl is CheckBox)
+                {
+                    ctl.BackColor = back;
+                    ctl.ForeColor = text;
+                }
+                else if (ctl is NumericUpDown)
+                {
+                    ctl.BackColor = controlBack;
+                    ctl.ForeColor = text;
+                }
+            }
         }
     }
 }

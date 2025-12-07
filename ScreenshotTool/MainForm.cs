@@ -50,6 +50,7 @@ namespace ScreenshotTool
         private Panel rightPanel = null!;
         private Panel leftBottomPanel = null!;
         private Button btnDelete = null!;
+        private Button btnDeleteAll = null!;
         private Button btnMove = null!;
         private CheckBox chkLivePreview = null!;
         private Label lblStatus = null!;
@@ -160,6 +161,7 @@ namespace ScreenshotTool
         private void WireUpEvents()
         {
             comboMonitors.SelectedIndexChanged += ComboMonitors_SelectedIndexChanged;
+            comboMonitors.DropDown += ComboMonitors_DropDown;
             btnCapture.Click += BtnCapture_Click;
             btnCaptureRegion.Click += BtnCaptureRegion_Click;
             btnRecord.Click += BtnRecord_Click;
@@ -181,6 +183,7 @@ namespace ScreenshotTool
             };
 
             btnDelete.Click += (s, e) => DeleteSelectedFiles();
+            btnDeleteAll.Click += (s, e) => DeleteAllVisibleFiles();
             btnMove.Click += (s, e) => MoveSelectedFiles();
 
             btnPopout.Click += BtnPopout_Click;
@@ -212,9 +215,10 @@ namespace ScreenshotTool
 
         private void ApplyDarkTheme()
         {
-            Color back = Color.FromArgb(32, 32, 32);
-            Color panelBack = Color.FromArgb(24, 24, 24);
-            Color text = Color.Gainsboro;
+            // Dark Blue and White theme
+            Color back = Color.FromArgb(0, 0, 139); // DarkBlue
+            Color panelBack = Color.FromArgb(25, 25, 112); // MidnightBlue
+            Color text = Color.White;
 
             BackColor = back;
             ForeColor = text;
@@ -230,9 +234,9 @@ namespace ScreenshotTool
             if (ctl is Panel or FlowLayoutPanel or GroupBox)
                 ctl.BackColor = panelBack;
             else if (ctl is Splitter)
-                ctl.BackColor = Color.FromArgb(40, 40, 40);
+                ctl.BackColor = Color.FromArgb(65, 105, 225); // RoyalBlue
             else if (ctl is ListView or TextBox or ComboBox)
-                ctl.BackColor = Color.FromArgb(28, 28, 28);
+                ctl.BackColor = Color.FromArgb(0, 0, 128); // Navy
             else
                 ctl.BackColor = back;
 
@@ -398,8 +402,17 @@ namespace ScreenshotTool
                 RefreshLivePreview();
         }
 
+        private void ComboMonitors_DropDown(object? sender, EventArgs e)
+        {
+            // Auto-enable live preview when dropdown opens
+            chkLivePreview.Checked = true;
+        }
+
         private void BtnCapture_Click(object? sender, EventArgs e)
         {
+            // Auto-disable live preview when capture starts
+            chkLivePreview.Checked = false;
+
             if (comboMonitors.SelectedItem is not MonitorItem mi)
                 return;
 
@@ -408,6 +421,9 @@ namespace ScreenshotTool
 
         private void BtnCaptureRegion_Click(object? sender, EventArgs e)
         {
+            // Auto-disable live preview when capture starts
+            chkLivePreview.Checked = false;
+
             if (comboMonitors.SelectedItem is not MonitorItem mi)
                 return;
 
@@ -488,6 +504,9 @@ namespace ScreenshotTool
         {
             if (_recordingService.IsRecording)
                 return;
+
+            // Auto-disable live preview when recording starts
+            chkLivePreview.Checked = false;
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
             {
@@ -937,6 +956,26 @@ namespace ScreenshotTool
                 return;
 
             _fileService.DeleteFiles(items.Select(i => i.FullPath));
+            RefreshMediaList();
+        }
+
+        private void DeleteAllVisibleFiles()
+        {
+            if (listMedia.Items.Count == 0) return;
+
+            if (MessageBox.Show($"Delete ALL {listMedia.Items.Count} visible file(s)?",
+                    "Delete All", MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Warning) != DialogResult.OK)
+                return;
+
+            var paths = new List<string>();
+            foreach (ListViewItem item in listMedia.Items)
+            {
+                if (item.Tag is IMediaItem m)
+                    paths.Add(m.FullPath);
+            }
+
+            _fileService.DeleteFiles(paths);
             RefreshMediaList();
         }
 
