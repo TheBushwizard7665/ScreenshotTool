@@ -1,0 +1,25 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenshotTool", "ScreenshotTool\ScreenshotTool.csproj", "{3892796D-6194-4F91-B882-72322677C333}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenshotTool.Tests", "ScreenshotTool.Tests\ScreenshotTool.Tests.csproj", "{49A3807E-7205-50A2-C993-83433788D444}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3892796D-6194-4F91-B882-72322677C333}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3892796D-6194-4F91-B882-72322677C333}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3892796D-6194-4F91-B882-72322677C333}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3892796D-6194-4F91-B882-72322677C333}.Release|Any CPU.Build.0 = Release|Any CPU
+		{49A3807E-7205-50A2-C993-83433788D444}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{49A3807E-7205-50A2-C993-83433788D444}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{49A3807E-7205-50A2-C993-83433788D444}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{49A3807E-7205-50A2-C993-83433788D444}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

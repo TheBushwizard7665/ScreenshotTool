@@ -1,4 +1,3 @@
-﻿using ScreenRecorderLib;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,18 +15,23 @@ namespace ScreenshotTool
         Recordings
     }
 
-    public sealed class MainForm : Form
+    public partial class MainForm : Form
     {
+        // Services
+        private readonly ISettingsService _settingsService;
+        private readonly IFileService _fileService;
+        private readonly IScreenshotService _screenshotService;
+        private readonly IRecordingService _recordingService;
+
         // Paths
         private readonly string appRootFolder;
         private readonly string screenshotsFolder;
         private readonly string recordingsFolder;
-        private readonly string settingsPath;
 
         // Settings
         private AppSettings settings = new AppSettings();
 
-        // UI
+        // UI Controls (defined in Designer, referenced here)
         private ComboBox comboMonitors = null!;
         private Button btnCapture = null!;
         private Button btnCaptureRegion = null!;
@@ -35,7 +39,6 @@ namespace ScreenshotTool
         private Button btnOpenFolder = null!;
         private Button btnOpenAllFolders = null!;
         private Button btnSettings = null!;
-        private CheckBox chkCompact = null!;
         private Label lblList = null!;
         private ComboBox comboView = null!;
         private TextBox txtSearch = null!;
@@ -45,8 +48,9 @@ namespace ScreenshotTool
         private Panel rightPanel = null!;
         private Panel leftBottomPanel = null!;
         private Button btnDelete = null!;
+        private Button btnDeleteAll = null!;
         private Button btnMove = null!;
-        private CheckBox chkLivePreview = null!;
+        private bool isLivePreviewEnabled;
         private Label lblStatus = null!;
         private Label lblFileStatus = null!;
         private ToolTip tooltips = null!;
@@ -54,17 +58,11 @@ namespace ScreenshotTool
         // Right-side preview
         private Panel previewHost = null!;
         private PictureBox picturePreview = null!;
+        private WmpHost mediaPlayer = null!;
         private Button btnPopout = null!;
 
-        // Column widths for compact mode
-        private int colMonitorWidth = 70;
-        private int colTagWidth = 70;
-        private int colFolderWidth = 80;
-        private int colDateWidth = 120;
-
         // Data
-        private readonly List<ScreenshotItem> allScreenshots = new();
-        private readonly List<RecordingItem> allRecordings = new();
+        private readonly List<IMediaItem> currentMediaList = new();
         private MediaViewMode currentView = MediaViewMode.Screenshots;
 
         // Sorting
@@ -86,39 +84,49 @@ namespace ScreenshotTool
         private string HOTKEY_TEXT => "Ctrl+Shift+Space";
         private bool isExiting;
 
-        // Recording
-        private Recorder? recorder;
-        private bool isRecording;
-
         // Context menu
         private ContextMenuStrip mediaContextMenu = null!;
         private ToolStripMenuItem ctxCopyImage = null!;
-        private ToolStripMenuItem ctxUploadChatGPT = null!;
+        private ToolStripMenuItem ctxCreateFolder = null!;
         private ToolStripMenuItem ctxEditPaint = null!;
 
         public MainForm()
         {
-            Text = "Screenshot Tool";
-            Font = new Font("Segoe UI", 9F);
-            StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(900, 500);
-
+            // Initialize basic paths first so services can use them
             appRootFolder = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "SimpleScreenshotTool");
 
+            // Instantiate Services (Poor man's DI)
+            _settingsService = new SettingsService(appRootFolder);
+            _fileService = new FileService();
+            _screenshotService = new ScreenshotService();
+            _recordingService = new RecordingService();
+
             screenshotsFolder = Path.Combine(appRootFolder, "Screenshots");
             recordingsFolder = Path.Combine(appRootFolder, "Recordings");
-            settingsPath = Path.Combine(appRootFolder, "settings.json");
 
             Directory.CreateDirectory(appRootFolder);
             Directory.CreateDirectory(screenshotsFolder);
             Directory.CreateDirectory(recordingsFolder);
 
-            LoadSettings();
-            InitializeUI();
+            // Load settings
+            settings = _settingsService.Load();
 
-            // Live preview timer
+            // Initialize UI from Designer
+            InitializeComponent();
+
+            // Add Media Player manually
+            mediaPlayer = new WmpHost
+            {
+                Dock = DockStyle.Fill,
+                Visible = false
+            };
+            previewHost.Controls.Add(mediaPlayer);
+
+            WireUpEvents();
+
+            // Additional UI Setup
             livePreviewTimer = new System.Windows.Forms.Timer();
             livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
             livePreviewTimer.Tick += (s, e) => RefreshLivePreview();
@@ -126,9 +134,7 @@ namespace ScreenshotTool
             InitializeTrayIcon();
             ApplyDarkTheme();
             PopulateMonitorList();
-
-            LoadScreenshotList();
-            LoadRecordingList();
+            InitializeMediaContextMenu();
 
             // Initial view & compact mode
             if (string.Equals(settings.LastMediaView, "Recordings", StringComparison.OrdinalIgnoreCase))
@@ -137,231 +143,24 @@ namespace ScreenshotTool
                 currentView = MediaViewMode.Screenshots;
 
             comboView.SelectedIndex = currentView == MediaViewMode.Screenshots ? 0 : 1;
-            chkCompact.Checked = settings.CompactMode;
-            ApplyCompactMode();
 
             InitializeHotkey();
+            RefreshMediaList();
         }
 
-        #region Settings
-
-        private void LoadSettings()
+        private void WireUpEvents()
         {
-            try
-            {
-                if (File.Exists(settingsPath))
-                {
-                    var json = File.ReadAllText(settingsPath);
-                    var loaded = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json);
-                    if (loaded != null)
-                        settings = loaded;
-                }
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        private void SaveSettings()
-        {
-            try
-            {
-                Directory.CreateDirectory(appRootFolder);
-                var json = System.Text.Json.JsonSerializer.Serialize(settings,
-                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(settingsPath, json);
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        #endregion
-
-        #region UI setup
-
-        private void InitializeUI()
-        {
-            // Tooltips
-            tooltips = new ToolTip
-            {
-                AutoPopDelay = 8000,
-                InitialDelay = 600,
-                ReshowDelay = 200,
-                ShowAlways = true
-            };
-
-            // Top bar
-            var topBar = new Panel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink
-            };
-
-            var topFlow = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = true,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Padding = new Padding(8, 9, 8, 9)
-            };
-
-            var lblMonitors = new Label
-            {
-                Text = "Monitor:",
-                AutoSize = true,
-                Margin = new Padding(0, 5, 4, 0)
-            };
-
-            comboMonitors = new ComboBox
-            {
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Width = 220
-            };
             comboMonitors.SelectedIndexChanged += ComboMonitors_SelectedIndexChanged;
-            tooltips.SetToolTip(comboMonitors, "Select which monitor to capture or record.");
-
-            btnCapture = new Button
-            {
-                Text = "Capture",
-                Width = 90,
-                Margin = new Padding(8, 0, 0, 0)
-            };
+            comboMonitors.DropDown += ComboMonitors_DropDown;
             btnCapture.Click += BtnCapture_Click;
-            tooltips.SetToolTip(btnCapture,
-                "Capture a full screenshot of the selected monitor.\r\n" +
-                $"{HOTKEY_TEXT} captures the monitor under your cursor.");
-
-            btnCaptureRegion = new Button
-            {
-                Text = "Region",
-                Width = 90,
-                Margin = new Padding(6, 0, 0, 0)
-            };
             btnCaptureRegion.Click += BtnCaptureRegion_Click;
-            tooltips.SetToolTip(btnCaptureRegion,
-                "Capture a custom rectangle by dragging on the selected monitor.");
-
-            btnRecord = new Button
-            {
-                Text = "Record",
-                Width = 90,
-                Margin = new Padding(6, 0, 0, 0)
-            };
             btnRecord.Click += BtnRecord_Click;
-            tooltips.SetToolTip(btnRecord,
-                "Start/stop screen recording of the selected monitor.");
-
-            btnOpenFolder = new Button
-            {
-                Text = "Open folder",
-                Width = 100,
-                Margin = new Padding(6, 0, 0, 0)
-            };
             btnOpenFolder.Click += BtnOpenFolder_Click;
-            tooltips.SetToolTip(btnOpenFolder,
-                "Open the screenshot folder for the selected monitor.");
-
-            btnOpenAllFolders = new Button
-            {
-                Text = "Open all",
-                Width = 90,
-                Margin = new Padding(6, 0, 0, 0)
-            };
             btnOpenAllFolders.Click += BtnOpenAllFolders_Click;
-            tooltips.SetToolTip(btnOpenAllFolders,
-                "Open the root folder that contains all screenshots.");
-
-            btnSettings = new Button
-            {
-                Text = "Settings",
-                Width = 90,
-                Margin = new Padding(6, 0, 0, 0)
-            };
             btnSettings.Click += BtnSettings_Click;
-            tooltips.SetToolTip(btnSettings,
-                "Adjust cleanup, preview, recording, and hotkey behavior.");
 
-            chkCompact = new CheckBox
-            {
-                Text = "Compact",
-                AutoSize = true,
-                Margin = new Padding(10, 6, 0, 0)
-            };
-            chkCompact.CheckedChanged += ChkCompact_CheckedChanged;
-            tooltips.SetToolTip(chkCompact,
-                "Compact mode hides extra columns and the preview area.");
-
-            topFlow.Controls.Add(lblMonitors);
-            topFlow.Controls.Add(comboMonitors);
-            topFlow.Controls.Add(btnCapture);
-            topFlow.Controls.Add(btnCaptureRegion);
-            topFlow.Controls.Add(btnRecord);
-            topFlow.Controls.Add(btnOpenFolder);
-            topFlow.Controls.Add(btnOpenAllFolders);
-            topFlow.Controls.Add(btnSettings);
-            topFlow.Controls.Add(chkCompact);
-
-            topBar.Controls.Add(topFlow);
-
-            // Left panel - list
-            leftPanel = new Panel
-            {
-                Dock = DockStyle.Left,
-                Width = 360
-            };
-
-            lblList = new Label
-            {
-                Text = "Screenshots",
-                Dock = DockStyle.Top,
-                Height = 20,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 2, 0, 0)
-            };
-
-            comboView = new ComboBox
-            {
-                Dock = DockStyle.Top,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Height = 22
-            };
-            comboView.Items.Add("Screenshots");
-            comboView.Items.Add("Recordings");
             comboView.SelectedIndexChanged += ComboView_SelectedIndexChanged;
-            tooltips.SetToolTip(comboView, "Switch between screenshot list and recording list.");
-
-            txtSearch = new TextBox
-            {
-                Dock = DockStyle.Top,
-                PlaceholderText = "Search by name..."
-            };
             txtSearch.TextChanged += (s, e) => ApplySearchFilter();
-            tooltips.SetToolTip(txtSearch, "Filter files by name. Type to search.");
-
-            listMedia = new ListView
-            {
-                Dock = DockStyle.Fill,
-                View = View.Details,
-                FullRowSelect = true,
-                HideSelection = false,
-                MultiSelect = true
-            };
-            listMedia.Columns.Add("Name", 180);
-            listMedia.Columns.Add("Monitor", 70);
-            listMedia.Columns.Add("Tag", 70);
-            listMedia.Columns.Add("Folder", 80);
-            listMedia.Columns.Add("Date", 120);
-
-            colMonitorWidth = listMedia.Columns[1].Width;
-            colTagWidth = listMedia.Columns[2].Width;
-            colFolderWidth = listMedia.Columns[3].Width;
-            colDateWidth = listMedia.Columns[4].Width;
 
             listMedia.ColumnClick += ListMedia_ColumnClick;
             listMedia.SelectedIndexChanged += ListMedia_SelectedIndexChanged;
@@ -371,84 +170,11 @@ namespace ScreenshotTool
                 if (listMedia.SelectedItems.Count > 0)
                     OpenSelected();
             };
-            tooltips.SetToolTip(listMedia,
-                "Click to select. Delete = remove, Enter = open.");
 
-            InitializeMediaContextMenu();
-            listMedia.ContextMenuStrip = mediaContextMenu;
-
-            leftBottomPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 36
-            };
-
-            btnDelete = new Button
-            {
-                Text = "Delete",
-                Width = 90,
-                Left = 6,
-                Top = 6
-            };
             btnDelete.Click += (s, e) => DeleteSelectedFiles();
-            tooltips.SetToolTip(btnDelete, "Delete the selected file(s).");
-
-            btnMove = new Button
-            {
-                Text = "Move...",
-                Width = 90,
-                Left = 102,
-                Top = 6
-            };
+            btnDeleteAll.Click += (s, e) => DeleteAllVisibleFiles();
             btnMove.Click += (s, e) => MoveSelectedFiles();
-            tooltips.SetToolTip(btnMove, "Move selected file(s) to another folder.");
 
-            leftBottomPanel.Controls.Add(btnDelete);
-            leftBottomPanel.Controls.Add(btnMove);
-
-            leftPanel.Controls.Add(listMedia);
-            leftPanel.Controls.Add(leftBottomPanel);
-            leftPanel.Controls.Add(txtSearch);
-            leftPanel.Controls.Add(comboView);
-            leftPanel.Controls.Add(lblList);
-
-            // Right panel - preview + status
-            rightPanel = new Panel
-            {
-                Dock = DockStyle.Fill
-            };
-
-            previewHost = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 20, 20)
-            };
-
-            picturePreview = new PictureBox
-            {
-                Dock = DockStyle.Fill,
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.FromArgb(20, 20, 20),
-                Margin = new Padding(4)
-            };
-
-            previewHost.Controls.Add(picturePreview);
-
-            btnPopout = new Button
-            {
-                Text = "⇱",
-                Width = 28,
-                Height = 24,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(30, 30, 30),
-                ForeColor = Color.Gainsboro,
-                TabStop = false,
-                Cursor = Cursors.Hand,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            btnPopout.FlatAppearance.BorderSize = 1;
-            btnPopout.FlatAppearance.BorderColor = Color.FromArgb(70, 70, 70);
-            btnPopout.Location = new Point(previewHost.Width - btnPopout.Width - 6, 6);
             btnPopout.Click += BtnPopout_Click;
             btnPopout.MouseEnter += (s, e) =>
             {
@@ -460,11 +186,6 @@ namespace ScreenshotTool
                 btnPopout.BackColor = Color.FromArgb(30, 30, 30);
                 btnPopout.FlatAppearance.BorderColor = Color.FromArgb(70, 70, 70);
             };
-            tooltips.SetToolTip(btnPopout,
-                "Pop out preview window (Shift+Click anywhere on the preview).");
-
-            previewHost.Controls.Add(btnPopout);
-            btnPopout.BringToFront();
 
             previewHost.Resize += (s, e) =>
             {
@@ -473,94 +194,57 @@ namespace ScreenshotTool
                     6);
             };
 
-            // Shift+click area to pop out
             previewHost.MouseDown += PreviewArea_MouseDown;
             picturePreview.MouseDown += PreviewArea_MouseDown;
 
-            var rightBottom = new Panel
+            listMedia.Resize += (s, e) =>
             {
-                Dock = DockStyle.Bottom,
-                Height = 60
+                if (listMedia.Columns.Count > 0)
+                    listMedia.Columns[0].Width = -2;
             };
-
-            chkLivePreview = new CheckBox
-            {
-                Text = "Live preview",
-                Left = 8,
-                Top = 6,
-                AutoSize = true
-            };
-            chkLivePreview.CheckedChanged += ChkLivePreview_CheckedChanged;
-            tooltips.SetToolTip(chkLivePreview,
-                "Continuously mirror the selected monitor in the preview area.");
-
-            lblStatus = new Label
-            {
-                Text = "Ready",
-                Left = 8,
-                Top = 28,
-                AutoSize = true
-            };
-
-            lblFileStatus = new Label
-            {
-                Text = "",
-                Left = 220,
-                Top = 28,
-                AutoSize = true
-            };
-
-            rightBottom.Controls.Add(chkLivePreview);
-            rightBottom.Controls.Add(lblStatus);
-            rightBottom.Controls.Add(lblFileStatus);
-
-            rightPanel.Controls.Add(previewHost);
-            rightPanel.Controls.Add(rightBottom);
-
-            // Splitter
-            mainSplitter = new Splitter
-            {
-                Dock = DockStyle.Left,
-                Width = 4,
-                BackColor = Color.FromArgb(40, 40, 40)
-            };
-
-            Controls.Add(rightPanel);
-            Controls.Add(mainSplitter);
-            Controls.Add(leftPanel);
-            Controls.Add(topBar);
         }
+
+        #region UI Theming & Setup
 
         private void ApplyDarkTheme()
         {
-            Color back = Color.FromArgb(32, 32, 32);
-            Color panelBack = Color.FromArgb(24, 24, 24);
-            Color text = Color.Gainsboro;
+            // Dark Blue-Grey theme
+            Color back = Color.FromArgb(47, 79, 79); // DarkSlateGray
+            Color panelBack = Color.FromArgb(40, 70, 70); // Slightly darker
+            Color text = Color.White;
+            Color listBack = Color.FromArgb(60, 90, 90); // Lighter for contrast
 
             BackColor = back;
             ForeColor = text;
 
             foreach (Control ctl in Controls)
-                ApplyDarkThemeToControl(ctl, back, panelBack, text);
+                ApplyDarkThemeToControl(ctl, back, panelBack, text, listBack);
 
             listMedia.GridLines = false;
         }
 
-        private void ApplyDarkThemeToControl(Control ctl, Color back, Color panelBack, Color text)
+        private void ApplyDarkThemeToControl(Control ctl, Color back, Color panelBack, Color text, Color listBack)
         {
             if (ctl is Panel or FlowLayoutPanel or GroupBox)
-                ctl.BackColor = panelBack;
+            {
+                if (ctl == leftPanel)
+                    ctl.BackColor = listBack;
+                else
+                    ctl.BackColor = panelBack;
+            }
             else if (ctl is Splitter)
-                ctl.BackColor = Color.FromArgb(40, 40, 40);
-            else if (ctl is ListView or TextBox or ComboBox)
-                ctl.BackColor = Color.FromArgb(28, 28, 28);
+                ctl.BackColor = Color.FromArgb(100, 149, 237); // CornflowerBlue
+            else if (ctl is ListView)
+                ctl.BackColor = listBack;
+            else if (ctl is TextBox or ComboBox)
+                ctl.BackColor = Color.FromArgb(50, 80, 80);
             else
                 ctl.BackColor = back;
 
             ctl.ForeColor = text;
 
             foreach (Control child in ctl.Controls)
-                ApplyDarkThemeToControl(child, back, panelBack, text);
+                ApplyDarkThemeToControl(child, back, panelBack, text, listBack);
         }
 
         private void InitializeMediaContextMenu()
@@ -582,14 +266,14 @@ namespace ScreenshotTool
             ctxEditPaint = new ToolStripMenuItem("Edit in Paint");
             ctxEditPaint.Click += (s, e) => EditSelectedInPaint();
 
-            ctxUploadChatGPT = new ToolStripMenuItem("Upload to ChatGPT (open file)");
-            ctxUploadChatGPT.Click += (s, e) => OpenSelected();
-
             var ctxRename = new ToolStripMenuItem("Rename...");
             ctxRename.Click += (s, e) => RenameSelected();
 
-            var ctxNewFolder = new ToolStripMenuItem("New folder (move here)...");
-            ctxNewFolder.Click += (s, e) => NewFolderAndMoveSelected();
+            ctxCreateFolder = new ToolStripMenuItem("Create New Folder...");
+            ctxCreateFolder.Click += (s, e) => CreateNewFolder();
+
+            var ctxNewFolderMove = new ToolStripMenuItem("New folder (move here)...");
+            ctxNewFolderMove.Click += (s, e) => NewFolderAndMoveSelected();
 
             var ctxDelete = new ToolStripMenuItem("Delete");
             ctxDelete.Click += (s, e) => DeleteSelectedFiles();
@@ -602,13 +286,15 @@ namespace ScreenshotTool
                 new ToolStripSeparator(),
                 ctxCopyImage,
                 ctxEditPaint,
-                ctxUploadChatGPT,
                 new ToolStripSeparator(),
                 ctxRename,
-                ctxNewFolder,
+                ctxCreateFolder,
+                ctxNewFolderMove,
                 new ToolStripSeparator(),
                 ctxDelete
             });
+
+            listMedia.ContextMenuStrip = mediaContextMenu;
         }
 
         #endregion
@@ -674,7 +360,7 @@ namespace ScreenshotTool
             {
                 hotkeyRegistered = RegisterHotKey(Handle, HOTKEY_ID,
                     MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_SPACE);
-                SetStatus($"{HOTKEY_TEXT}: registered");
+                // Status update removed as requested
             }
             catch
             {
@@ -713,12 +399,24 @@ namespace ScreenshotTool
 
         private void ComboMonitors_SelectedIndexChanged(object? sender, EventArgs e)
         {
-            if (chkLivePreview.Checked)
+            if (isLivePreviewEnabled)
                 RefreshLivePreview();
+        }
+
+        private void ComboMonitors_DropDown(object? sender, EventArgs e)
+        {
+            // Auto-enable live preview when dropdown opens
+            isLivePreviewEnabled = true;
+            livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
+            livePreviewTimer.Start();
         }
 
         private void BtnCapture_Click(object? sender, EventArgs e)
         {
+            // Auto-disable live preview when capture starts
+            isLivePreviewEnabled = false;
+            livePreviewTimer.Stop();
+
             if (comboMonitors.SelectedItem is not MonitorItem mi)
                 return;
 
@@ -727,56 +425,35 @@ namespace ScreenshotTool
 
         private void BtnCaptureRegion_Click(object? sender, EventArgs e)
         {
-            Screen screen;
-            int index;
+            // Auto-disable live preview when capture starts
+            isLivePreviewEnabled = false;
+            livePreviewTimer.Stop();
 
-            if (comboMonitors.SelectedItem is MonitorItem mi)
-            {
-                screen = mi.Screen;
-                index = mi.Index;
-            }
-            else
-            {
-                screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
-                index = Array.IndexOf(Screen.AllScreens, screen);
-                if (index < 0) index = 0;
-            }
+            if (comboMonitors.SelectedItem is not MonitorItem mi)
+                return;
 
-            using (var regionForm = new RegionCaptureForm(screen))
+            using var regionForm = new RegionCaptureForm(mi.Screen);
+            if (regionForm.ShowDialog(this) == DialogResult.OK && regionForm.HasRegion)
             {
-                if (regionForm.ShowDialog(this) != DialogResult.OK)
-                    return;
+                var rectLocal = regionForm.SelectedRegionLocal;
+                if (rectLocal.Width <= 0 || rectLocal.Height <= 0) return;
 
-                var rect = regionForm.SelectedRegion;
-                if (rect.Width <= 0 || rect.Height <= 0)
-                    return;
+                // Convert to absolute
+                var absolute = new Rectangle(
+                    mi.Screen.Bounds.X + rectLocal.X,
+                    mi.Screen.Bounds.Y + rectLocal.Y,
+                    rectLocal.Width,
+                    rectLocal.Height
+                );
 
                 try
                 {
-                    string monitorFolder = Path.Combine(screenshotsFolder, $"Monitor{index + 1}");
-                    Directory.CreateDirectory(monitorFolder);
-
-                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                    string filePath = Path.Combine(monitorFolder, $"Region_{timestamp}.png");
-
-                    using var bmp = new Bitmap(rect.Width, rect.Height);
-                    using (var g = Graphics.FromImage(bmp))
-                    {
-                        g.CopyFromScreen(rect.Location, Point.Empty, rect.Size);
-                    }
-                    bmp.Save(filePath);
-
-                    RunAutoCleanup();
-                    LoadScreenshotList();
-
-                    if (currentView == MediaViewMode.Screenshots)
-                        SelectLatestInList();
-
-                    SetFileStatus($"Saved {Path.GetFileName(filePath)}");
+                    string file = _screenshotService.CaptureRegion(mi.Screen, absolute, screenshotsFolder);
+                    PostCapture(file);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("Error capturing region: " + ex.Message,
+                     MessageBox.Show("Error capturing region: " + ex.Message,
                         "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
@@ -786,35 +463,23 @@ namespace ScreenshotTool
         {
             try
             {
-                int index = Array.IndexOf(Screen.AllScreens, screen);
-                if (index < 0) index = 0;
-
-                string monitorFolder = Path.Combine(screenshotsFolder, $"Monitor{index + 1}");
-                Directory.CreateDirectory(monitorFolder);
-
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string filePath = Path.Combine(monitorFolder, $"Screen_{timestamp}.png");
-
-                using var bmp = new Bitmap(screen.Bounds.Width, screen.Bounds.Height);
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    g.CopyFromScreen(screen.Bounds.Location, Point.Empty, screen.Bounds.Size);
-                }
-                bmp.Save(filePath);
-
-                RunAutoCleanup();
-                LoadScreenshotList();
-
-                if (currentView == MediaViewMode.Screenshots)
-                    SelectLatestInList();
-
-                SetFileStatus($"Saved {Path.GetFileName(filePath)}");
+                string file = _screenshotService.CaptureScreen(screen, screenshotsFolder);
+                PostCapture(file);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error capturing screen: " + ex.Message,
                     "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void PostCapture(string filePath)
+        {
+            _fileService.RunAutoCleanup(screenshotsFolder, settings.MaxFileCount, settings.MaxAgeDays);
+            RefreshMediaList();
+            if (currentView == MediaViewMode.Screenshots)
+                SelectLatestInList();
+            SetFileStatus($"Saved {Path.GetFileName(filePath)}");
         }
 
         private void CaptureMonitorUnderCursor()
@@ -834,7 +499,7 @@ namespace ScreenshotTool
 
         private void BtnRecord_Click(object? sender, EventArgs e)
         {
-            if (!isRecording)
+            if (!_recordingService.IsRecording)
                 StartRecordingSelectedMonitor();
             else
                 StopRecording();
@@ -842,8 +507,12 @@ namespace ScreenshotTool
 
         private void StartRecordingSelectedMonitor()
         {
-            if (isRecording)
+            if (_recordingService.IsRecording)
                 return;
+
+            // Auto-disable live preview when recording starts
+            isLivePreviewEnabled = false;
+            livePreviewTimer.Stop();
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
             {
@@ -852,139 +521,61 @@ namespace ScreenshotTool
                 return;
             }
 
-            try
-            {
-                int monitorIndex = mi.Index;
+            btnRecord.Text = "Stop";
+            SetFileStatus($"Recording Monitor {mi.Index + 1}…");
 
-                string monitorFolder = Path.Combine(recordingsFolder, $"Monitor{monitorIndex + 1}");
-                Directory.CreateDirectory(monitorFolder);
-
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string filePath = Path.Combine(monitorFolder, $"Rec_M{monitorIndex + 1}_{timestamp}.mp4");
-
-                var displays = Recorder.GetDisplays();
-                DisplayRecordingSource displaySource =
-                    displays.FirstOrDefault(d => string.Equals(d.DeviceName,
-                                                               mi.Screen.DeviceName,
-                                                               StringComparison.OrdinalIgnoreCase))
-                    ?? displays.ElementAtOrDefault(monitorIndex)
-                    ?? displays.First();
-
-                var options = new RecorderOptions
-                {
-                    SourceOptions = new SourceOptions
-                    {
-                        RecordingSources = new List<RecordingSourceBase> { displaySource }
-                    },
-                    AudioOptions = new AudioOptions
-                    {
-                        IsAudioEnabled = settings.RecordingIncludeAudio,
-                        IsInputDeviceEnabled = settings.RecordingIncludeAudio,
-                        IsOutputDeviceEnabled = settings.RecordingIncludeAudio
-                    }
-                };
-
-                recorder = Recorder.CreateRecorder(options);
-
-                recorder.OnRecordingComplete += (s, e) =>
+            _recordingService.StartRecording(
+                mi.Screen,
+                recordingsFolder,
+                settings.RecordingIncludeAudio,
+                settings.VideoBitrate,
+                settings.VideoFramerate,
+                onComplete: (filePath) =>
                 {
                     if (!IsHandleCreated) return;
                     BeginInvoke(new Action(() =>
                     {
-                        isRecording = false;
                         btnRecord.Text = "Record";
-                        LoadRecordingList();
+                        RefreshMediaList();
                         if (currentView == MediaViewMode.Recordings)
                             SelectLatestInList();
-                        SetFileStatus($"Recording saved: {Path.GetFileName(e.FilePath)}");
+                        SetFileStatus($"Recording saved: {Path.GetFileName(filePath)}");
                     }));
-                };
-
-                recorder.OnRecordingFailed += (s, e) =>
+                },
+                onError: (error) =>
                 {
                     if (!IsHandleCreated) return;
                     BeginInvoke(new Action(() =>
                     {
-                        isRecording = false;
                         btnRecord.Text = "Record";
-                        MessageBox.Show("Recording failed:\n" + e.Error,
+                        MessageBox.Show("Recording failed:\n" + error,
                             "Recording Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }));
-                };
-
-                recorder.Record(filePath);
-                isRecording = true;
-                btnRecord.Text = "Stop";
-                SetFileStatus($"Recording Monitor {monitorIndex + 1}…");
-            }
-            catch (Exception ex)
-            {
-                isRecording = false;
-                btnRecord.Text = "Record";
-                MessageBox.Show("Error starting recording:\n" + ex.Message,
-                    "Recording Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+                });
         }
 
         private void StopRecording()
         {
-            if (!isRecording || recorder == null)
-                return;
-
-            try
-            {
-                recorder.Stop();
-                SetFileStatus("Stopping recording…");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error stopping recording:\n" + ex.Message,
-                    "Recording Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void LoadRecordingList()
-        {
-            allRecordings.Clear();
-            if (!Directory.Exists(recordingsFolder))
-                return;
-
-            var files = Directory.GetFiles(recordingsFolder, "*.mp4", SearchOption.AllDirectories);
-            Array.Sort(files, (a, b) => File.GetCreationTime(b).CompareTo(File.GetCreationTime(a)));
-            foreach (var f in files)
-                allRecordings.Add(new RecordingItem(f));
-
-            if (currentView == MediaViewMode.Recordings)
-                ApplySearchFilter();
+            _recordingService.StopRecording();
+            SetFileStatus("Stopping recording…");
         }
 
         #endregion
 
         #region Media list
 
-        private void LoadScreenshotList()
+        private void RefreshMediaList()
         {
-            allScreenshots.Clear();
-            if (!Directory.Exists(screenshotsFolder))
-                return;
+            currentMediaList.Clear();
 
-            var files = Directory.GetFiles(screenshotsFolder, "*.png", SearchOption.AllDirectories);
-            Array.Sort(files, (a, b) => File.GetCreationTime(b).CompareTo(File.GetCreationTime(a)));
-            foreach (var f in files)
-                allScreenshots.Add(new ScreenshotItem(f));
+            bool isScreenshots = (currentView == MediaViewMode.Screenshots);
+            string folder = isScreenshots ? screenshotsFolder : recordingsFolder;
+            string pattern = isScreenshots ? "*.png" : "*.mp4";
 
-            if (currentView == MediaViewMode.Screenshots)
-                ApplySearchFilter();
-        }
+            var items = _fileService.LoadMedia(folder, pattern, isScreenshots);
+            currentMediaList.AddRange(items);
 
-        private void AddMediaItemToList(IMediaItem item)
-        {
-            var lvi = new ListViewItem(item.DisplayName) { Tag = item };
-            lvi.SubItems.Add(item.MonitorShortLabel);
-            lvi.SubItems.Add(item.TagLabel);
-            lvi.SubItems.Add(item.FolderLabel);
-            lvi.SubItems.Add(item.Created.ToString("yyyy-MM-dd HH:mm"));
-            listMedia.Items.Add(lvi);
+            ApplySearchFilter();
         }
 
         private void ApplySearchFilter()
@@ -994,29 +585,20 @@ namespace ScreenshotTool
             listMedia.BeginUpdate();
             listMedia.Items.Clear();
 
-            if (currentView == MediaViewMode.Screenshots)
+            foreach (var item in currentMediaList)
             {
-                foreach (var item in allScreenshots)
-                {
-                    if (!string.IsNullOrEmpty(filter) &&
-                        !item.FileName.ToLowerInvariant().Contains(filter))
-                        continue;
-                    AddMediaItemToList(item);
-                }
-            }
-            else
-            {
-                foreach (var item in allRecordings)
-                {
-                    if (!string.IsNullOrEmpty(filter) &&
-                        !item.FileName.ToLowerInvariant().Contains(filter))
-                        continue;
-                    AddMediaItemToList(item);
-                }
+                if (!string.IsNullOrEmpty(filter) &&
+                    !item.FileName.ToLowerInvariant().Contains(filter))
+                    continue;
+
+                var lvi = new ListViewItem(item.DisplayName) { Tag = item };
+                lvi.SubItems.Add(item.MonitorShortLabel);
+                lvi.SubItems.Add(item.FolderLabel);
+                lvi.SubItems.Add(item.Created.ToString("yyyy-MM-dd HH:mm"));
+                listMedia.Items.Add(lvi);
             }
 
             listMedia.EndUpdate();
-
             listMedia.ListViewItemSorter = new MediaListViewComparer(currentSortColumn, sortAscending);
             listMedia.Sort();
         }
@@ -1070,13 +652,18 @@ namespace ScreenshotTool
                 picturePreview.Image?.Dispose();
                 picturePreview.Image = null;
 
+                try { mediaPlayer?.Player?.controls.stop(); } catch { }
+                mediaPlayer.Visible = false;
+                picturePreview.Visible = true;
+
                 SetFileStatus("");
                 return;
             }
 
-            if (chkLivePreview.Checked)
+            if (isLivePreviewEnabled)
             {
-                chkLivePreview.Checked = false;
+                isLivePreviewEnabled = false;
+                livePreviewTimer.Stop();
             }
 
             UpdateFileStatusDetails(item.FullPath);
@@ -1087,9 +674,7 @@ namespace ScreenshotTool
             }
             else
             {
-                // For recordings we don't inline preview; just show info
-                picturePreview.Image?.Dispose();
-                picturePreview.Image = null;
+                ShowPreviewForFile(item.FullPath);
             }
         }
 
@@ -1148,16 +733,37 @@ namespace ScreenshotTool
 
                 string ext = Path.GetExtension(path).ToLowerInvariant();
 
-                if (chkLivePreview.Checked)
+                if (isLivePreviewEnabled)
                     return;
 
                 if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif")
                 {
+                    try { mediaPlayer?.Player?.controls.stop(); } catch { }
+                    mediaPlayer.Visible = false;
+                    picturePreview.Visible = true;
+
                     picturePreview.Image?.Dispose();
                     picturePreview.Image = Image.FromFile(path);
                 }
+                else if (ext is ".mp4" or ".avi" or ".mov" or ".wmv")
+                {
+                    picturePreview.Visible = false;
+                    mediaPlayer.Visible = true;
+
+                    var player = mediaPlayer.Player;
+                    if (player != null)
+                    {
+                        player.URL = path;
+                        player.settings.volume = 100;
+                        player.controls.play();
+                    }
+                }
                 else
                 {
+                    try { mediaPlayer?.Player?.controls.stop(); } catch { }
+                    mediaPlayer.Visible = false;
+                    picturePreview.Visible = true;
+
                     picturePreview.Image?.Dispose();
                     picturePreview.Image = null;
                 }
@@ -1168,22 +774,9 @@ namespace ScreenshotTool
             }
         }
 
-        private void ChkLivePreview_CheckedChanged(object? sender, EventArgs e)
-        {
-            if (chkLivePreview.Checked && !settings.CompactMode)
-            {
-                livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
-                livePreviewTimer.Start();
-            }
-            else
-            {
-                livePreviewTimer.Stop();
-            }
-        }
-
         private void RefreshLivePreview()
         {
-            if (!chkLivePreview.Checked || settings.CompactMode)
+            if (!isLivePreviewEnabled)
                 return;
 
             if (comboMonitors.SelectedItem is not MonitorItem mi)
@@ -1198,6 +791,10 @@ namespace ScreenshotTool
                     g.CopyFromScreen(screen.Bounds.Location, Point.Empty, screen.Bounds.Size);
                 }
 
+                try { mediaPlayer?.Player?.controls.stop(); } catch { }
+                mediaPlayer.Visible = false;
+                picturePreview.Visible = true;
+
                 picturePreview.Image?.Dispose();
                 picturePreview.Image = new Bitmap(bmp);
             }
@@ -1211,45 +808,7 @@ namespace ScreenshotTool
 
         #region Compact mode / view mode
 
-        private void ChkCompact_CheckedChanged(object? sender, EventArgs e)
-        {
-            settings.CompactMode = chkCompact.Checked;
-            SaveSettings();
-            ApplyCompactMode();
-        }
 
-        private void ApplyCompactMode()
-        {
-            if (listMedia.Columns.Count < 5) return;
-
-            if (settings.CompactMode)
-            {
-                listMedia.Columns[1].Width = 0;
-                listMedia.Columns[2].Width = 0;
-                listMedia.Columns[3].Width = 0;
-                listMedia.Columns[4].Width = 0;
-
-                chkLivePreview.Enabled = false;
-                livePreviewTimer.Stop();
-
-                rightPanel.Visible = false;
-                mainSplitter.Visible = false;
-                leftPanel.Dock = DockStyle.Fill;
-            }
-            else
-            {
-                listMedia.Columns[1].Width = colMonitorWidth;
-                listMedia.Columns[2].Width = colTagWidth;
-                listMedia.Columns[3].Width = colFolderWidth;
-                listMedia.Columns[4].Width = colDateWidth;
-
-                chkLivePreview.Enabled = true;
-                rightPanel.Visible = true;
-                mainSplitter.Visible = true;
-                leftPanel.Dock = DockStyle.Left;
-                leftPanel.Width = 360;
-            }
-        }
 
         private void ComboView_SelectedIndexChanged(object? sender, EventArgs e)
         {
@@ -1260,27 +819,25 @@ namespace ScreenshotTool
             settings.LastMediaView = currentView == MediaViewMode.Screenshots
                 ? "Screenshots"
                 : "Recordings";
-            SaveSettings();
+            _settingsService.Save(settings);
 
             lblList.Text = currentView == MediaViewMode.Screenshots ? "Screenshots" : "Recordings";
 
-            chkLivePreview.Enabled = !settings.CompactMode;
-            if (!chkLivePreview.Enabled)
-            {
-                livePreviewTimer.Stop();
-            }
-            else if (chkLivePreview.Checked)
+            if (isLivePreviewEnabled)
             {
                 livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
                 livePreviewTimer.Start();
+            }
+            else
+            {
+                livePreviewTimer.Stop();
             }
 
             bool screenshots = (currentView == MediaViewMode.Screenshots);
             ctxCopyImage.Enabled = screenshots;
             ctxEditPaint.Enabled = screenshots;
-            ctxUploadChatGPT.Enabled = screenshots;
 
-            ApplySearchFilter();
+            RefreshMediaList();
         }
 
         #endregion
@@ -1303,17 +860,11 @@ namespace ScreenshotTool
             }
             catch (Exception ex)
             {
+                // Fallback attempt
                 try
                 {
                     string args = "/select,\"" + item.FullPath + "\"";
                     Process.Start("explorer.exe", args);
-                    MessageBox.Show(
-                        "Windows doesn't have a default app set for this file type.\n\n" +
-                        "I opened the folder instead. Right-click the file, choose 'Open with…' " +
-                        "and set a default app to make this work directly.",
-                        "No associated app",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
                 }
                 catch
                 {
@@ -1359,23 +910,28 @@ namespace ScreenshotTool
                     MessageBoxIcon.Warning) != DialogResult.OK)
                 return;
 
-            foreach (var item in items)
+            _fileService.DeleteFiles(items.Select(i => i.FullPath));
+            RefreshMediaList();
+        }
+
+        private void DeleteAllVisibleFiles()
+        {
+            if (listMedia.Items.Count == 0) return;
+
+            if (MessageBox.Show($"Delete ALL {listMedia.Items.Count} visible file(s)?",
+                    "Delete All", MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Warning) != DialogResult.OK)
+                return;
+
+            var paths = new List<string>();
+            foreach (ListViewItem item in listMedia.Items)
             {
-                try
-                {
-                    if (File.Exists(item.FullPath))
-                        File.Delete(item.FullPath);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error deleting file:\n" + ex.Message,
-                        "Delete", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                if (item.Tag is IMediaItem m)
+                    paths.Add(m.FullPath);
             }
 
-            LoadScreenshotList();
-            LoadRecordingList();
-            ApplySearchFilter();
+            _fileService.DeleteFiles(paths);
+            RefreshMediaList();
         }
 
         private void MoveSelectedFiles()
@@ -1391,35 +947,8 @@ namespace ScreenshotTool
                 return;
 
             string destRoot = fbd.SelectedPath;
-
-            foreach (var item in items)
-            {
-                try
-                {
-                    if (!File.Exists(item.FullPath))
-                        continue;
-
-                    string destPath = Path.Combine(destRoot, item.FileName);
-                    if (File.Exists(destPath))
-                    {
-                        string name = Path.GetFileNameWithoutExtension(item.FileName);
-                        string ext = Path.GetExtension(item.FileName);
-                        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                        destPath = Path.Combine(destRoot, $"{name}_{stamp}{ext}");
-                    }
-
-                    File.Move(item.FullPath, destPath);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error moving file:\n" + ex.Message,
-                        "Move", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-
-            LoadScreenshotList();
-            LoadRecordingList();
-            ApplySearchFilter();
+            _fileService.MoveFiles(items.Select(i => i.FullPath), destRoot);
+            RefreshMediaList();
         }
 
         private string GetBaseMonitorPathForFile(string filePath)
@@ -1459,38 +988,18 @@ namespace ScreenshotTool
                 return;
 
             string folderName = dlg.NewName.Trim();
-            if (string.IsNullOrEmpty(folderName))
-                return;
-
+            if (string.IsNullOrEmpty(folderName)) return;
             foreach (char c in Path.GetInvalidFileNameChars())
                 folderName = folderName.Replace(c, '_');
 
             try
             {
                 string baseMonitorPath = GetBaseMonitorPathForFile(baseItem.FullPath);
+                _fileService.CreateFolder(baseMonitorPath, folderName);
+
                 string newDir = Path.Combine(baseMonitorPath, folderName);
-                Directory.CreateDirectory(newDir);
-
-                foreach (var item in items)
-                {
-                    if (!File.Exists(item.FullPath))
-                        continue;
-
-                    string destPath = Path.Combine(newDir, item.FileName);
-                    if (File.Exists(destPath))
-                    {
-                        string name = Path.GetFileNameWithoutExtension(item.FileName);
-                        string ext = Path.GetExtension(item.FileName);
-                        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                        destPath = Path.Combine(newDir, $"{name}_{stamp}{ext}");
-                    }
-
-                    File.Move(item.FullPath, destPath);
-                }
-
-                LoadScreenshotList();
-                LoadRecordingList();
-                ApplySearchFilter();
+                _fileService.MoveFiles(items.Select(i => i.FullPath), newDir);
+                RefreshMediaList();
             }
             catch (Exception ex)
             {
@@ -1511,7 +1020,6 @@ namespace ScreenshotTool
 
             var item = items[0];
             string currentName = Path.GetFileNameWithoutExtension(item.FileName);
-            string ext = Path.GetExtension(item.FileName);
 
             using var dlg = new RenameForm(currentName);
             if (dlg.ShowDialog(this) != DialogResult.OK)
@@ -1520,30 +1028,51 @@ namespace ScreenshotTool
             string newName = dlg.NewName.Trim();
             foreach (char c in Path.GetInvalidFileNameChars())
                 newName = newName.Replace(c, '_');
-            if (string.IsNullOrEmpty(newName))
-                return;
 
-            string dir = Path.GetDirectoryName(item.FullPath) ?? "";
-            string destPath = Path.Combine(dir, newName + ext);
+            if (string.IsNullOrEmpty(newName)) return;
 
             try
             {
-                if (File.Exists(destPath))
-                {
-                    MessageBox.Show("A file with that name already exists.",
-                        "Rename", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                File.Move(item.FullPath, destPath);
-                LoadScreenshotList();
-                LoadRecordingList();
-                ApplySearchFilter();
+                _fileService.RenameFile(item.FullPath, newName);
+                RefreshMediaList();
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error renaming file:\n" + ex.Message,
                     "Rename", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void CreateNewFolder()
+        {
+            using var dlg = new RenameForm("NewFolder");
+            dlg.Text = "Create New Folder";
+            if (dlg.ShowDialog(this) != DialogResult.OK)
+                return;
+
+            string folderName = dlg.NewName.Trim();
+            if (string.IsNullOrEmpty(folderName)) return;
+            foreach (char c in Path.GetInvalidFileNameChars())
+                folderName = folderName.Replace(c, '_');
+
+            try
+            {
+                string basePath = currentView == MediaViewMode.Screenshots ? screenshotsFolder : recordingsFolder;
+
+                var item = GetFirstSelectedItem();
+                if (item != null)
+                {
+                    string dir = Path.GetDirectoryName(item.FullPath) ?? basePath;
+                    basePath = dir;
+                }
+
+                _fileService.CreateFolder(basePath, folderName);
+                RefreshMediaList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error creating folder:\n" + ex.Message,
+                    "Create New Folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1603,41 +1132,6 @@ namespace ScreenshotTool
 
         #region Cleanup + settings + lifecycle
 
-        private void RunAutoCleanup()
-        {
-            try
-            {
-                if (!Directory.Exists(screenshotsFolder))
-                    return;
-
-                var files = Directory.GetFiles(screenshotsFolder, "*.png", SearchOption.AllDirectories)
-                    .Select(f => new FileInfo(f))
-                    .OrderByDescending(fi => fi.CreationTimeUtc)
-                    .ToList();
-
-                if (files.Count > settings.MaxFileCount)
-                {
-                    foreach (var fi in files.Skip(settings.MaxFileCount))
-                    {
-                        try { fi.Delete(); } catch { }
-                    }
-                }
-
-                DateTime cutoff = DateTime.Now.AddDays(-settings.MaxAgeDays);
-                foreach (var fi in files)
-                {
-                    if (fi.CreationTime < cutoff)
-                    {
-                        try { fi.Delete(); } catch { }
-                    }
-                }
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
         private void BtnOpenFolder_Click(object? sender, EventArgs e)
         {
             if (comboMonitors.SelectedItem is not MonitorItem mi)
@@ -1662,7 +1156,7 @@ namespace ScreenshotTool
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
                 settings = dlg.Settings;
-                SaveSettings();
+                _settingsService.Save(settings);
                 livePreviewTimer.Interval = settings.LivePreviewIntervalMs;
             }
         }
@@ -1692,10 +1186,7 @@ namespace ScreenshotTool
                 trayIcon.Dispose();
             }
 
-            if (isRecording && recorder != null)
-            {
-                try { recorder.Stop(); } catch { }
-            }
+            _recordingService.StopRecording();
 
             base.OnFormClosed(e);
         }
@@ -1717,7 +1208,6 @@ namespace ScreenshotTool
 
             if (currentView == MediaViewMode.Recordings)
             {
-                // For recordings just open system player
                 OpenSelected();
                 return;
             }

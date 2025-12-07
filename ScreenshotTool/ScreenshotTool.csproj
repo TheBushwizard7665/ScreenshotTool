@@ -9,10 +9,6 @@
     <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Compile Remove="MainForm.Recordings.cs" />
-    <Compile Remove="MainForm.Screenshots.cs" />
-  </ItemGroup>
 
   <ItemGroup>
     <COMReference Include="WMPLib">
