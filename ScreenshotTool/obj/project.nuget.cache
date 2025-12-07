@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "Pvy+wEE8i64=",
+  "success": true,
+  "projectFilePath": "Z:\\Soft wares\\ScreenshotTool\\ScreenshotTool.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\walke\\.nuget\\packages\\screenrecorderlib\\6.6.0\\screenrecorderlib.6.6.0.nupkg.sha512"
+  ],
+  "logs": []
+}
