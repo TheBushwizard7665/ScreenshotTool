@@ -1,44 +1,53 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
 namespace ScreenshotTool
 {
-    public sealed class RegionCaptureForm : Form
+    /// <summary>
+    /// Full-screen overlay on a specific monitor that lets the user drag
+    /// to select a rectangular region. Press Esc to cancel.
+    /// </summary>
+    public class RegionCaptureForm : Form
     {
-        private readonly Screen targetScreen;
-        private bool isDragging;
-        private Point dragStart;
-        private Rectangle selectedRegion;
+        private readonly Rectangle monitorBounds;
+        private bool drawing;
+        private Point startPoint;
+        private Point currentPoint;
 
-        public Rectangle SelectedRegion => selectedRegion;
+        public bool HasRegion { get; private set; }
+        /// <summary>
+        /// Selected rectangle in coordinates relative to the monitor's top-left.
+        /// </summary>
+        public Rectangle SelectedRegionLocal { get; private set; }
 
-        public RegionCaptureForm(Screen screen)
+        public RegionCaptureForm(Screen monitor)
         {
-            targetScreen = screen;
+            monitorBounds = monitor.Bounds;
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            Bounds = screen.Bounds;
-            DoubleBuffered = true;
+            Bounds = monitorBounds;
             TopMost = true;
-            Opacity = 0.35;
+            DoubleBuffered = true;
             BackColor = Color.Black;
+            Opacity = 0.15;
             Cursor = Cursors.Cross;
-
             KeyPreview = true;
-            KeyDown += RegionCaptureForm_KeyDown;
 
+            // Capture mouse events
             MouseDown += RegionCaptureForm_MouseDown;
             MouseMove += RegionCaptureForm_MouseMove;
             MouseUp += RegionCaptureForm_MouseUp;
+            KeyDown += RegionCaptureForm_KeyDown;
         }
 
         private void RegionCaptureForm_KeyDown(object? sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Escape)
             {
+                HasRegion = false;
                 DialogResult = DialogResult.Cancel;
                 Close();
             }
@@ -49,72 +58,76 @@ namespace ScreenshotTool
             if (e.Button != MouseButtons.Left)
                 return;
 
-            isDragging = true;
-            dragStart = e.Location;
-            selectedRegion = Rectangle.Empty;
+            drawing = true;
+            startPoint = e.Location;
+            currentPoint = e.Location;
             Invalidate();
         }
 
         private void RegionCaptureForm_MouseMove(object? sender, MouseEventArgs e)
         {
-            if (!isDragging)
+            if (!drawing)
                 return;
 
-            int x1 = Math.Min(dragStart.X, e.X);
-            int y1 = Math.Min(dragStart.Y, e.Y);
-            int x2 = Math.Max(dragStart.X, e.X);
-            int y2 = Math.Max(dragStart.Y, e.Y);
-
-            selectedRegion = new Rectangle(x1, y1, x2 - x1, y2 - y1);
+            currentPoint = e.Location;
             Invalidate();
         }
 
         private void RegionCaptureForm_MouseUp(object? sender, MouseEventArgs e)
         {
-            if (!isDragging)
+            if (!drawing || e.Button != MouseButtons.Left)
                 return;
 
-            isDragging = false;
+            drawing = false;
+            currentPoint = e.Location;
 
-            if (selectedRegion.Width > 0 && selectedRegion.Height > 0)
+            Rectangle rect = GetCurrentRect();
+            if (rect.Width > 0 && rect.Height > 0)
             {
-                // translate from local coordinates to screen coordinates
-                var screenRect = new Rectangle(
-                    selectedRegion.Left + targetScreen.Bounds.Left,
-                    selectedRegion.Top + targetScreen.Bounds.Top,
-                    selectedRegion.Width,
-                    selectedRegion.Height);
-
-                selectedRegion = screenRect;
+                SelectedRegionLocal = rect;
+                HasRegion = true;
                 DialogResult = DialogResult.OK;
-                Close();
             }
             else
             {
+                HasRegion = false;
                 DialogResult = DialogResult.Cancel;
-                Close();
             }
+
+            Close();
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
 
-            if (selectedRegion.Width <= 0 || selectedRegion.Height <= 0)
+            if (!drawing)
                 return;
 
-            // draw selection rectangle in form coordinates
-            Rectangle local = new Rectangle(
-                selectedRegion.Left - targetScreen.Bounds.Left,
-                selectedRegion.Top - targetScreen.Bounds.Top,
-                selectedRegion.Width,
-                selectedRegion.Height);
+            Rectangle rect = GetCurrentRect();
+            if (rect.Width <= 0 || rect.Height <= 0)
+                return;
 
-            using var pen = new Pen(Color.Lime, 2);
-            using var brush = new SolidBrush(Color.FromArgb(50, Color.Lime));
+            using var borderPen = new Pen(Color.Lime, 2);
+            using var fillBrush = new SolidBrush(Color.FromArgb(60, Color.Lime));
 
-            e.Graphics.DrawRectangle(pen, local);
-            e.Graphics.FillRectangle(brush, local);
+            e.Graphics.DrawRectangle(borderPen, rect);
+            e.Graphics.FillRectangle(fillBrush, rect);
+        }
+
+        private Rectangle GetCurrentRect()
+        {
+            int x1 = startPoint.X;
+            int y1 = startPoint.Y;
+            int x2 = currentPoint.X;
+            int y2 = currentPoint.Y;
+
+            int left = Math.Min(x1, x2);
+            int top = Math.Min(y1, y2);
+            int right = Math.Max(x1, x2);
+            int bottom = Math.Max(y1, y2);
+
+            return new Rectangle(left, top, right - left, bottom - top);
         }
     }
 }
